@@ -3,17 +3,35 @@
 #include <stdbool.h>
 #include "esp_err.h"
 
-// 【服务层通用结构】
-// 上层应用只关心最终结果，不关心 IR/Red 原始值或中间变量
+
+/***********************************************************
+ * @brief 代理转换传感器原始数据后最终数据
+ **********************************************************/
 typedef struct {
     int heart_rate_bpm;   // 最终心率
     int spo2_percent;     // 最终血氧
     bool is_valid;        // 数据是否可信
 } sensor_data_t;
 
+/***********************************************************
+ * @brief 初始化服务
+ * 
+ * @param NULL
+ * @return 
+ *      - ESP_OK
+ *      - ESP_FAIL
+ * 
+ **********************************************************/
 // 初始化服务
 esp_err_t sensor_service_init(void);
 
-// 获取通用数据
-// 注意：返回的是 sensor_data_t，而不是 max30102_raw_data_t
+/***********************************************************
+ * @brief 获取最终数据
+ * 
+ * @param[out] out_data 最终数据
+ * @return 
+ *      - ESP_OK
+ *      - ESP_FAIL
+ * 
+ **********************************************************/
 esp_err_t sensor_service_get_data(sensor_data_t *out_data);

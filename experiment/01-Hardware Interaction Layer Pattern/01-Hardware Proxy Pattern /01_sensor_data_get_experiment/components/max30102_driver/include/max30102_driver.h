@@ -2,9 +2,11 @@
 
 #include <stdint.h>
 #include "esp_err.h"
+#include "driver/gpio.h"
 
-// I2C 配置（根据实际硬件修改）
-// 在 max30102_driver.h 中添加
+// I2C 配置
+#define MAX_I2C_SCL             GPIO_NUM_4
+#define MAX_I2C_SDA             GPIO_NUM_5
 #define MAX30102_ADDR           0x57
 
 // 寄存器地址定义
@@ -27,15 +29,38 @@
 #define REG_TEMP_CONFIG         0x21
 #define REG_PART_ID             0xFF
 
-#define SAMPLES_PER_SECOND 					100	//检测频率
+#define SAMPLES_PER_SECOND 		100	//检测频率
 
-// 数据结构
+
+/***********************************************************
+ * @brief 设备原始数据存储数据结构
+ **********************************************************/
 typedef struct {
     uint32_t red;
     uint32_t ir;
 } max30102_raw_data_t;
 
-// API 函数
+/***********************************************************
+ * @brief 初始化max30102设备
+ * 
+ * @param void
+ * @return  
+ *      - ESP_OK
+ *      - ESP_ERR_INVALID_ARG
+ *      - ESP_ERR_NO_MEM
+ * 
+ **********************************************************/
 esp_err_t driver_max30102_init(void);
+
+/***********************************************************
+ * @brief 获取设备原始数据
+ * 
+ * @param[out] out_raw 获取到的原始数据
+ * @return  
+ *      - ESP_OK
+ *      - ESP_ERR_INVALID_ARG
+ *      - ESP_ERR_NO_MEM
+ * 
+ **********************************************************/
 esp_err_t driver_max30102_read_raw(max30102_raw_data_t *out_raw);
-void max30102_read_fifo(void);
+
