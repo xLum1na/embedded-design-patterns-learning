@@ -84,7 +84,7 @@ esp_err_t sensor_service_get_data(sensor_data_t *out_data)
     max30102_raw_data_t raw;
     esp_err_t ret = driver_max30102_read_raw(&raw);
     if (ret != ESP_OK) {
-        return ret;
+        return ESP_ERR_NOT_FOUND;
     }
 
     //查看原始数据
@@ -170,8 +170,8 @@ esp_err_t sensor_service_get_data(sensor_data_t *out_data)
     // 40bpm @ 50Hz sample, N=256 -> index approx: (40/60)*256/50 = 3.4
     // 200bpm -> index approx: 17
     // 为了安全，搜索范围设为 2 到 60 (覆盖极高心率或谐波)
-    int max_idx_red = find_max_num_index(s1, 60); 
-    int max_idx_ir = find_max_num_index(s2, 60);
+    int max_idx_red = find_max_num_index(s1, 2, 60); 
+    int max_idx_ir = find_max_num_index(s2, 2, 60);
 
     // 9. 验证一致性
     // 如果红光和红外光检测到的主频率不一致，说明信号不可靠
@@ -215,5 +215,5 @@ esp_err_t sensor_service_get_data(sensor_data_t *out_data)
                  max_idx_red, max_idx_ir, diff);
     }
 
-    return ret;
+    return ESP_OK;
 }

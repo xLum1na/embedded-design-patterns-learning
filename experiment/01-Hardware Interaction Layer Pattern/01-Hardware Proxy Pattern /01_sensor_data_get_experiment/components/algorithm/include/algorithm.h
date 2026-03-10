@@ -1,50 +1,45 @@
-#ifndef __ALGORITHM_H
-#define __ALGORITHM_H
+#pragma once
 
-#define FFT_N 			256    //定义傅里叶变换的点数
-#define START_INDEX 	8  		//低频过滤阈值
+#include <stdint.h>
+#include <stdbool.h>
 
-struct compx     	//定义一个复数结构
-{
+#define FFT_N 			128    	// 傅里叶变换点数
+#define START_INDEX 	2  		// 心率40bpm对应的最低索引 (40/60*256/50≈3.4)
+#define END_INDEX 		8 		// 心率200bpm对应的最高索引 (200/60*256/50≈17)
+
+// 采样率定义
+#define SAMPLES_PER_SECOND 50
+
+struct compx {
 	float real;
 	float imag;
 };  
 
-typedef struct		//定义一个直流滤波器结构体
-{
+typedef struct {
 	float w;
 	int init;
 	float a;
-}DC_FilterData;		//用于存储直流滤波器的参数
+} DC_FilterData;
 
-
-typedef struct		//定义一个带宽滤波器结构体
-{
+typedef struct {
 	float v0;
 	float v1;
-}BW_FilterData;		//用于存储带宽滤波器的参数
+} BW_FilterData;
 
-
-
+// 基础数学函数
 double my_floor(double x);
-
 double my_fmod(double x, double y);
-
-double XSin( double x );
-
-double XCos( double x );
-
+double XSin(double x);
+double XCos(double x);
 int qsqrt(int a);
 
-
-struct compx EE(struct compx a,struct compx b);
-
+// 复数与FFT
+struct compx EE(struct compx a, struct compx b);
 void FFT(struct compx *xin);
 
-int find_max_num_index(struct compx *data,int count);
-int dc_filter(int input,DC_FilterData * df);
-int bw_filter(int input,BW_FilterData * bw);
+// 查找峰值（带范围限制）
+int find_max_num_index(struct compx *data, int start_idx, int end_idx);
 
-
-#endif
-
+// 滤波器
+int dc_filter(int input, DC_FilterData *df);
+int bw_filter(int input, BW_FilterData *bw);

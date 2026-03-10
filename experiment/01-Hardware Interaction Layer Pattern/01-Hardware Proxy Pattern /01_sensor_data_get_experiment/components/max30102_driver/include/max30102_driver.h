@@ -18,7 +18,7 @@
 #define REG_OVF_COUNTER         0x05
 #define REG_FIFO_RD_PTR         0x06
 #define REG_FIFO_DATA           0x07
-#define REG_FIFO_CONFIG         0x08
+#define REG_FIFO_CONFIG         0x08 
 #define REG_MODE_CONFIG         0x09
 #define REG_SPO2_CONFIG         0x0A
 #define REG_LED1_PA             0x0C

@@ -3,13 +3,12 @@
 #include <stdbool.h>
 #include "esp_err.h"
 
-
 /***********************************************************
  * @brief 代理转换传感器原始数据后最终数据
  **********************************************************/
-typedef struct {
-    int heart_rate_bpm;   // 最终心率
-    int spo2_percent;     // 最终血氧
+typedef struct sensor_data_t {
+    uint16_t heart_rate_bpm;   // 最终心率
+    uint16_t spo2_percent;     // 最终血氧
     bool is_valid;        // 数据是否可信
 } sensor_data_t;
 

@@ -1,10 +1,10 @@
 #include <stdio.h>
 #include "max30102_driver.h"
-#include "driver/i2c_master.h"
 #include "esp_log.h" 
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "driver/i2c.h"
 
 static const char *TAG = "MAX30102";
 
@@ -12,10 +12,8 @@ static const char *TAG = "MAX30102";
 static uint32_t fifo_red;
 static uint32_t fifo_ir;
 
-//全局I2C句柄
-static i2c_master_bus_handle_t bus_handle = NULL;
-static i2c_master_dev_handle_t dev_handle = NULL;
 static SemaphoreHandle_t i2c_mutex = NULL;
+
 
 
 /***********************************************************
@@ -30,33 +28,25 @@ static SemaphoreHandle_t i2c_mutex = NULL;
  **********************************************************/
 static esp_err_t max30102_i2c_init(void)
 {
-    if (bus_handle != NULL) {
-        ESP_LOGW(TAG, "I2C Bus already initialized");
+    if (i2c_mutex != NULL) {
+        ESP_LOGW(TAG, "I2C already initialized");
         return ESP_OK;
     }
 
-    i2c_master_bus_config_t i2c_mst_config = {
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .i2c_port = I2C_NUM_0,
-        .scl_io_num = MAX_I2C_SCL,
+    i2c_config_t conf = {
+        .mode = I2C_MODE_MASTER,
         .sda_io_num = MAX_I2C_SDA,
-        .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = true,
+        .scl_io_num = MAX_I2C_SCL,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = 50000,
     };
 
-    ESP_RETURN_ON_ERROR(i2c_new_master_bus(&i2c_mst_config, &bus_handle), TAG, "I2C New Master Bus Failed");
-
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = MAX30102_ADDR,    //从设备地址
-        .scl_speed_hz = 100000,             //采样率100khz
-        .scl_wait_us = 0,
-        .flags.disable_ack_check = false,
-    };
-
-    ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bus_handle, &dev_cfg, &dev_handle), TAG, "I2C Add Device Failed");
+    ESP_RETURN_ON_ERROR(i2c_param_config(I2C_NUM_0, &conf), TAG, "I2C config failed");
+    ESP_RETURN_ON_ERROR(i2c_driver_install(I2C_NUM_0, conf.mode, 0, 0, 0), TAG, "I2C install failed");
 
     i2c_mutex = xSemaphoreCreateMutex();
+    ESP_LOGI(TAG, "I2C initialized (legacy driver)");
     
     return ESP_OK;
 }
@@ -71,13 +61,10 @@ static esp_err_t max30102_i2c_init(void)
  **********************************************************/
 static void max30102_i2c_deinit(void)
 {
-    if (dev_handle) {
-        i2c_master_bus_rm_device(dev_handle);
-        dev_handle = NULL;
-    }
-    if (bus_handle) {
-        i2c_del_master_bus(bus_handle);
-        bus_handle = NULL;
+    i2c_driver_delete(I2C_NUM_0);
+    if (i2c_mutex) {
+        vSemaphoreDelete(i2c_mutex);
+        i2c_mutex = NULL;
     }
 }
 
@@ -95,20 +82,24 @@ static esp_err_t max30102_write_reg(uint8_t reg_addr, uint8_t data)
 {
     xSemaphoreTake(i2c_mutex, portMAX_DELAY);
 
-    uint8_t write_buf[2] = {reg_addr, data};
-    TickType_t timeout_ticks = pdMS_TO_TICKS(50); 
-
-    esp_err_t ret = i2c_master_transmit(dev_handle, write_buf, 2, timeout_ticks);
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (MAX30102_ADDR << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, reg_addr, true);
+    i2c_master_write_byte(cmd, data, true);
+    i2c_master_stop(cmd);
+    
+    esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(100));
+    i2c_cmd_link_delete(cmd);
     
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Write Reg 0x%02X Failed: %s", reg_addr, esp_err_to_name(ret));
-        return ret;
     }
 
     xSemaphoreGive(i2c_mutex);
-    
     return ret;
 }
+
 
 /***********************************************************
  * @brief 读取寄存器值
@@ -124,15 +115,32 @@ static esp_err_t max30102_read_reg(uint8_t addr, uint8_t *data)
 {
     xSemaphoreTake(i2c_mutex, portMAX_DELAY);
 
-    esp_err_t ret = i2c_master_transmit_receive(dev_handle, &addr, 1, data, 1, pdMS_TO_TICKS(100));
+    // 写寄存器地址
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (MAX30102_ADDR << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, addr, true);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(100));
+    i2c_cmd_link_delete(cmd);
     
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Read Reg 0x%02X Failed: %s", addr, esp_err_to_name(ret));
+        xSemaphoreGive(i2c_mutex);
         return ret;
     }
+    
+    vTaskDelay(pdMS_TO_TICKS(5));
+    
+    // 读数据
+    cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (MAX30102_ADDR << 1) | I2C_MASTER_READ, true);
+    i2c_master_read_byte(cmd, data, I2C_MASTER_NACK);
+    i2c_master_stop(cmd);
+    ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(100));
+    i2c_cmd_link_delete(cmd);
 
     xSemaphoreGive(i2c_mutex);
-
     return ret;
 }
 
@@ -153,7 +161,7 @@ static esp_err_t max30102_reset(void)
     uint8_t data;
     esp_err_t ret = max30102_read_reg(REG_MODE_CONFIG, &data);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read pre-reset config");
+        ESP_LOGE(TAG, "Failed to read pre-reset config ");
         return ret;
     }
     ESP_LOGI(TAG, "Pre-reset MODE_CONFIG: 0x%02X", data);
@@ -251,48 +259,44 @@ static esp_err_t max30102_config(void)
 static esp_err_t max30102_read_fifo(void)
 {
     uint8_t fifo_data[6];
-    uint8_t reg_addr = REG_FIFO_DATA;
     
-    // 原子操作：发送地址 + 读取6字节
-    esp_err_t ret = i2c_master_transmit_receive(dev_handle, &reg_addr, 1, fifo_data, 6, pdMS_TO_TICKS(10));
-
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "I2C Read FIFO Failed: %s", esp_err_to_name(ret));
-        fifo_red = 0;
-        fifo_ir = 0;
-        // 即使读取失败，也建议尝试清除中断标志，防止中断风暴
-        max30102_write_reg(REG_INTR_STATUS_1, 0xFF); 
-        return ret;
-    }
-
-    // --- 数据解析 ---
-    // MAX30102 数据格式：[RED_H:2bit][RED_M:8bit][RED_L:8bit] [IR_H:2bit][IR_M:8bit][IR_L:8bit]
-    uint32_t raw_red = ((uint32_t)(fifo_data[0] & 0x03) << 16) | 
-                       ((uint32_t)fifo_data[1] << 8) | 
-                       ((uint32_t)fifo_data[2]);
+    // 先检查 FIFO 中有多少样本
+    uint8_t write_ptr, read_ptr;
+    max30102_read_reg(REG_FIFO_WR_PTR, &write_ptr);
+    max30102_read_reg(REG_FIFO_RD_PTR, &read_ptr);
     
-    uint32_t raw_ir = ((uint32_t)(fifo_data[3] & 0x03) << 16) | 
-                      ((uint32_t)fifo_data[4] << 8) | 
-                      ((uint32_t)fifo_data[5]);
-
-    // 有效性检查 (饱和值 0x3FFFF = 524287)
-    // 如果读到全 1 或异常大值，视为无效
-    if (raw_red >= 0x3FFFF || raw_ir >= 0x3FFFF) {
-        // 可能是手指未放好或溢出，视应用层需求决定是否清零
-        // 这里选择保留原始值供调试，或者按需清零
-        // fifo_red = 0; fifo_ir = 0; 
-        ESP_LOGD(TAG, "Saturation detected: R=%lu, IR=%lu", raw_red, raw_ir);
+    uint8_t num_samples = (write_ptr - read_ptr) & 0x1F;
+    
+    if (num_samples == 0) {
+        // 没有新数据，返回上次值或 0
+        return ESP_ERR_NOT_FOUND;
     }
     
-    fifo_red = raw_red;
-    fifo_ir = raw_ir;
-
-    // --- 关键步骤：清除中断标志 ---
-    // 读取 FIFO 后，必须向 INT_STATUS 寄存器写 1 来清除对应的中断位
-    // 否则 INT 引脚将一直保持低电平
-    max30102_write_reg(REG_INTR_STATUS_1, 0xFF); 
-    max30102_write_reg(REG_INTR_STATUS_2, 0xFF);
-    return ret;
+    // 只读取最新样本（跳过旧的，避免延迟）
+    for (int i = 0; i < num_samples; i++) {
+        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, (MAX30102_ADDR << 1) | I2C_MASTER_WRITE, true);
+        i2c_master_write_byte(cmd, REG_FIFO_DATA, true);
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, (MAX30102_ADDR << 1) | I2C_MASTER_READ, true);
+        i2c_master_read(cmd, fifo_data, 5, I2C_MASTER_ACK);
+        i2c_master_read_byte(cmd, fifo_data + 5, I2C_MASTER_NACK);
+        i2c_master_stop(cmd);
+        
+        esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(100));
+        i2c_cmd_link_delete(cmd);
+        
+        if (ret != ESP_OK) return ret;
+    }
+    
+    // 解析（只保留最后一次读取的）
+    fifo_red = ((uint32_t)(fifo_data[0] & 0x03) << 16) | 
+               ((uint32_t)fifo_data[1] << 8) | fifo_data[2];
+    fifo_ir = ((uint32_t)(fifo_data[3] & 0x03) << 16) | 
+              ((uint32_t)fifo_data[4] << 8) | fifo_data[5];
+    
+    return ESP_OK;
 }
 
 /***********************************************************
