@@ -29,7 +29,7 @@
 #define REG_TEMP_CONFIG         0x21
 #define REG_PART_ID             0xFF
 
-#define SAMPLES_PER_SECOND 		100	//检测频率
+#define SAMPLES_PER_SECOND 		100000	//检测频率
 
 
 /***********************************************************

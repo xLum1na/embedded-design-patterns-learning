@@ -39,7 +39,7 @@ static esp_err_t max30102_i2c_init(void)
         .scl_io_num = MAX_I2C_SCL,
         .sda_pullup_en = GPIO_PULLUP_ENABLE,
         .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = 50000,
+        .master.clk_speed = SAMPLES_PER_SECOND,
     };
 
     ESP_RETURN_ON_ERROR(i2c_param_config(I2C_NUM_0, &conf), TAG, "I2C config failed");

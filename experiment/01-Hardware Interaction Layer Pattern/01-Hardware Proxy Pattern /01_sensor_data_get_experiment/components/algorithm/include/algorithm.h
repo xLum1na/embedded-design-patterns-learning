@@ -8,7 +8,7 @@
 #define END_INDEX 		8 		// 心率200bpm对应的最高索引 (200/60*256/50≈17)
 
 // 采样率定义
-#define SAMPLES_PER_SECOND 50
+#define SAMPLES_PER_SECOND 100
 
 struct compx {
 	float real;

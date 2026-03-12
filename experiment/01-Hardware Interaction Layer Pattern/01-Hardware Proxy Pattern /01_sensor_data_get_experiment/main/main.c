@@ -25,10 +25,8 @@ void app_main(void)
             printf("Heart Rate: %d bpm, SpO2: %d%%\n", 
                    data.heart_rate_bpm, 
                    data.spo2_percent);
-        } else {
-            printf("No valid data\n");
         }
         
-        vTaskDelay(pdMS_TO_TICKS(100));   // 10Hz 采样
+        vTaskDelay(pdMS_TO_TICKS(10));   // 100Hz 采样
     }
 }
