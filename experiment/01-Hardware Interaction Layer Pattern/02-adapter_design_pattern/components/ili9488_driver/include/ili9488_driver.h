@@ -12,7 +12,22 @@
 extern "C" {
 #endif
 
-/**
+/****************************************************************
+ * 触摸功能部分
+ * 
+ * 
+ ***************************************************************/
+
+
+
+
+
+/****************************************************************
+ * 显示驱动部分
+ * 
+ * 
+ ***************************************************************/
+/*********************************************************************
  * @brief Create LCD panel for model ILI9488
  *
  * @param[in] io LCD panel IO handle
@@ -31,7 +46,7 @@ extern "C" {
  * NOTE: For parallel IO (Intel 8080) interface 16-bit color mode should
  * be used and @param buffer_size will be ignored.
 
- */
+ ***********************************************************************/
 esp_err_t esp_lcd_new_panel_ili9488(const esp_lcd_panel_io_handle_t io,
                                     const esp_lcd_panel_dev_config_t *panel_dev_config,
                                     const size_t buffer_size,
