@@ -53,7 +53,7 @@ esp_err_t key_init(const key_config_t *cfg, key_handle_t *handle);
 esp_err_t key_deinit(key_handle_t handle);
 
 //按键轮询
-esp_err_t key_poll(key_handle_t handle);
+esp_err_t key_machine(key_handle_t handle);
 
 #ifdef __cplusplus
 }
