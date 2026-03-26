@@ -12,6 +12,7 @@ typedef struct led_t {
     bool is_on;
     int64_t last_blink_time;
     led_breathe_state_t breathe_state;
+    bool is_fade_running;
 }led_t;
 
 
@@ -57,12 +58,26 @@ static void led_blink(led_handle_t handle)
 static void led_breathe(led_handle_t handle)
 {
     if (!handle) return;
-    
+    if (handle->is_fade_running) {
+        return;
+    }
+    // 标记为正在运行
+    handle->is_fade_running = true;
     //初始化渐变
     handle->breathe_state = LED_BREATHE_STATE_IN;
     ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 
                           8191, handle->led.breathe_time);
     ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, LEDC_FADE_NO_WAIT);
+}
+
+static void led_breathe_stop(led_handle_t handle)
+{
+    if (!handle) return;
+    //停止当前的渐变动作
+    ledc_fade_stop(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+    //重置渐变状态，防止回调函数逻辑混乱
+    handle->breathe_state = LED_BREATHE_STATE_IN; 
+    handle->is_fade_running = false;
 }
 
 //状态表
@@ -149,6 +164,7 @@ esp_err_t led_init(const led_config_t *cfg, led_handle_t *handle)
     ret_handle->led = *cfg;
     ret_handle->last_blink_time = 0;
     ret_handle->is_on = false;
+    ret_handle->is_fade_running = false;
     ret_handle->current_state = LED_STA_OFF;
     *handle = ret_handle;
 
@@ -174,11 +190,14 @@ esp_err_t led_machine(led_handle_t handle)
     //获取队列消息
     event_t received_evt;
     if (xQueueReceive(event_queue, &received_evt, pdMS_TO_TICKS(10)) == pdTRUE) {
-        // 3. 收到消息，处理状态跳转逻辑
+        //收到消息，处理状态跳转逻辑
         printf("LED Received Event: %d\n", received_evt.event);
         
         switch (received_evt.event) {
             case KEY_EVENT_CLICK: 
+                if (handle->current_state == LED_STA_BREATHE) {
+                    led_breathe_stop(handle);
+                }
                 //只管led开与关
                 if (handle->current_state == LED_STA_OFF) {
                     handle->current_state = LED_STA_ON;
@@ -187,6 +206,9 @@ esp_err_t led_machine(led_handle_t handle)
                 }
                 break;
             case KEY_EVENT_LONG_PRESS:
+                if (handle->current_state == LED_STA_BREATHE) {
+                    led_breathe_stop(handle);
+                }
                 //管理led闪烁
                 if (handle->current_state == LED_STA_BLINK) {
                      handle->current_state = LED_STA_OFF;
@@ -197,8 +219,10 @@ esp_err_t led_machine(led_handle_t handle)
             case KEY_EVENT_DOUBLE_CLICK:
                 //管理led呼吸灯
                 if (handle->current_state ==LED_STA_BREATHE) {
+                    led_breathe_stop(handle);
                      handle->current_state = LED_STA_OFF;
                 } else if (handle->current_state == LED_STA_OFF) {
+
                     handle->current_state = LED_STA_BREATHE;
                 }
                 break;
@@ -207,7 +231,7 @@ esp_err_t led_machine(led_handle_t handle)
         }
     }
 
-    // 4. 查表执行当前状态的动作
+    //查表执行当前状态的动作
     if (handle->current_state < LED_STA_MAX) {
         tran_t[handle->current_state].action(handle);
     }

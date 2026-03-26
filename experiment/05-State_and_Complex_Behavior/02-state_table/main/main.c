@@ -11,9 +11,11 @@ QueueHandle_t event_queue = NULL;
 void key_event_cb(key_handle_t handle, key_event_t event, void *user_data)
 {
     //发送对应事件到队列
-    printf("Failed to create queue! %d\n\n",event);
+    printf("event = %d\n",event);
     event_t current_event = {event, user_data};
-    xQueueSend(event_queue, &current_event, 0);
+    if (xQueueSend(event_queue, &current_event, pdMS_TO_TICKS(10)) != pdTRUE) {
+        printf("send event fail\n");
+    }
 }
 
  
@@ -58,7 +60,7 @@ void app_main(void)
     key_init(&cfg, &key_handle);
     //led初始化
     led_config_t led_cfg = {
-        .led_io = GPIO_NUM_42,
+        .led_io = GPIO_NUM_4,
         .blink_time = 500,
         .breathe_time = 2000,
         .user_data = (void*)id,
@@ -67,8 +69,8 @@ void app_main(void)
 
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    xTaskCreate(key_task, "key_task", 2048 * 2, NULL, 3, NULL);
-    //xTaskCreate(led_task, "led_task", 2048 * 2, NULL, 3, NULL);
+    xTaskCreate(key_task, "key_task", 2048 * 2, NULL, 5, NULL);
+    xTaskCreate(led_task, "led_task", 2048 * 2, NULL, 3, NULL);
 
 
     vTaskDelay(pdMS_TO_TICKS(10));
