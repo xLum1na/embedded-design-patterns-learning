@@ -1,11 +1,16 @@
 #include <stdio.h>
 #include "driver_fingerprint.h"
+#include "esp_log.h"
+
+
+
+static const char *TAG = "fp_driver";
 
 
 //句柄定义
 typedef struct fp_t {
     fp_config_t fingerprint;        //当前指纹模块配置
-    QueueHandle_t uart_evt_queue;   //uart事件句柄
+
 }fp_t;
 
 //=============== 指纹模块内部串口数据包数据结构定义 ===============//
@@ -13,23 +18,9 @@ typedef struct fp_t {
 #define FP_FRAME_HEAD       0xFD    //帧头
 #define FP_FRAME_TAIL       0xDF    //帧尾
 #define FP_FRAME_MIN_LEN    5       //最小帧长度：FD + CMD + P1 + P2 + DF
-#define FP_FRAME_MAX_LEN    8       //最大帧长度（预留扩展）
-#define FP_MAX_DATA_LEN     4       //数据域最大长度
 
 #define FP_ID_MIN           0x01    //指纹ID最小值
 #define FP_ID_MAX           0x80    //指纹ID最大值（1-80，共80个）
-
-
-//队列定义
-#define FP_UART_QUEUE_SIZE  8       //可装8个uart事件
-
-//模块开关命令定义
-typedef enum {
-    FP_CTRL_FP_OFF      = 0x00,     //关闭指纹识别
-    FP_CTRL_FP_ON       = 0x01,     //开启指纹识别
-    FP_CTRL_LED_OFF     = 0x02,     //关闭指纹灯
-    FP_CTRL_LED_ON      = 0x03,     //开启指纹灯
-} fp_ctrl_t;
 
 //数据包结构定义
 typedef struct {
@@ -46,11 +37,11 @@ static esp_err_t fp_send_packet(fp_handle_t handle, uint8_t cmd,
                                 uint8_t param1, uint8_t param2)
 {
     //参数检测
-    if (handle == NULL || cmd == NULL || param1 == NULL || param2 == NULL) {
+    if (handle == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     //构成数据协议包
-    fp_frame_t pakect = {
+    fp_frame_t packet = {
         .head = FP_FRAME_HEAD,
         .cmd = cmd,
         .param1 = param1,
@@ -58,9 +49,9 @@ static esp_err_t fp_send_packet(fp_handle_t handle, uint8_t cmd,
         .tail = FP_FRAME_TAIL
     };
     //发送数据包
-    int tx_len = uart_write_bytes(handle->fingerprint.uart_port, &pakect, 
-                                sizeof(pakect) / sizeof(pakect.cmd));
-    if (tx_len != sizeof(pakect) / sizeof(pakect.cmd)) {
+    int tx_len = uart_write_bytes(handle->fingerprint.uart_port, (void*)&packet, 
+                                sizeof(packet));
+    if (tx_len != sizeof(packet)) {
         return ESP_ERR_INVALID_SIZE;
     }
     //阻塞等待串口发送完成
@@ -71,46 +62,37 @@ static esp_err_t fp_send_packet(fp_handle_t handle, uint8_t cmd,
     return ESP_OK;
 }
 
-//接收数据包
 static esp_err_t fp_receive_packet(fp_handle_t handle, uint8_t *data)
 {
     if (handle == NULL || data == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    //发生串口中断是从缓冲区接收数据包并进行解包
-    //从中断事件队列中读取对应中断事件
-    uint8_t rx_buffer[9];
-    uart_event_t ev;
-    if (xQueueReceive(handle->uart_evt_queue, (void *)&ev, (TickType_t)portMAX_DELAY)) {
-        switch (ev.type) {
-            case UART_DATA:
-                // 获取数据并解包
-                int len = uart_read_bytes(handle->fingerprint.uart_port, rx_buffer, 
-                                        sizeof(rx_buffer), 0);
-                if (len > 0) {
-                    if (len == 1) {
-                        //接收到的数据包只有一个字节，直接返回
-                        *data = rx_buffer[0];
-                        return ESP_OK;
-                    } else if (len == 5) {
-                        //解包，只需要第三个字节
-                        *data = rx_buffer[2];
-                        return ESP_OK;
-                    }
-                }
-                break;
-            case UART_FIFO_OVF:
-                // 发生溢出，需要清空缓冲区
-                uart_flush_input(handle->fingerprint.uart_port);
-                 return ESP_ERR_INVALID_STATE; 
-            default:
-                break;
-        }
+
+    uint8_t rx_buffer[10];
+    //非阻塞读取FIFO中数据
+    //阻塞等待返回数据
+    int len = uart_read_bytes(handle->fingerprint.uart_port, 
+                        rx_buffer, sizeof(rx_buffer), 
+                        pdMS_TO_TICKS(100));
+    //解包
+    if (len >= 5) {
+        *data = rx_buffer[2]; 
+        //处理完数据后，开启中断
+        return ESP_OK;
+    } else if (len == 1) {
+        *data = rx_buffer[0];
+        return ESP_OK;
     }
+    //超时
     return ESP_ERR_TIMEOUT;
 }
 
-
+// GPIO 中断处理函数
+static void IRAM_ATTR gpio_isr_handler(void* arg) {
+    uint32_t gpio_num = (uint32_t) arg;
+    //有指纹开始识别产生中断，中断通知识别开始向外发送开始识别事件，触发后上层调用开始验证函数，通过验证函数来判断是否成功
+    
+}
 
 //=============== 指纹模块外部API ===============//
 //串口初始化
@@ -127,7 +109,7 @@ esp_err_t fp_init(const fp_config_t *config, fp_handle_t *handle)
     //初始化uart
     //创建uart程序
     esp_err_t ret = uart_driver_install(config->uart_port, config->rx_buffer_size,  
-                                        config->tx_buffer_size, 8, &ret_handle->uart_evt_queue, 0);
+                                        config->tx_buffer_size, 0, NULL, 0);
 
     if (ret != ESP_OK) {
         return ESP_FAIL;
@@ -141,6 +123,7 @@ esp_err_t fp_init(const fp_config_t *config, fp_handle_t *handle)
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
         .rx_flow_ctrl_thresh = 0,
     };
+    
     ret = uart_param_config(config->uart_port, &uart_cfg);
     if (ret != ESP_OK) {
         uart_driver_delete(config->uart_port);
@@ -148,30 +131,27 @@ esp_err_t fp_init(const fp_config_t *config, fp_handle_t *handle)
     }
     //设置串口IO
     ret = uart_set_pin(config->uart_port, 
-                config->uart_txd, 
-                config->uart_rxd, 
-                -1, -1);
+                    config->uart_txd, 
+                    config->uart_rxd, 
+                    UART_PIN_NO_CHANGE, // RTS
+                    UART_PIN_NO_CHANGE); // CTS
     if (ret != ESP_OK) {
         uart_driver_delete(config->uart_port);
         return ESP_FAIL;
     }
-    //串口中断事件配置
-    uart_intr_config_t uart_intr = {
-        .intr_enable_mask = UART_DATA | UART_FIFO_OVF,
-        .rxfifo_full_thresh = 100,
-        .rx_timeout_thresh = 10,
+    //初始化输入中断IO
+    gpio_config_t io_cfg = {
+        .pin_bit_mask = 1ULL << config->fp_vt,
+        .mode = GPIO_MODE_INPUT,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .intr_type = GPIO_INTR_POSEDGE,
     };
-    ret = uart_intr_config(config->uart_port, &uart_intr);
-    if (ret != ESP_OK) {
-        uart_driver_delete(config->uart_port);
-        return ESP_FAIL;
-    }
-    //使能接收中断
-    ret = uart_enable_rx_intr(config->uart_port);
-    if (ret != ESP_OK) {
-        uart_driver_delete(config->uart_port);
-        return ESP_FAIL;
-    }
+    gpio_config(&io_cfg);
+    //注册中断函数
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(config->fp_vt, gpio_isr_handler, (void*)config->fp_vt);
+
     //返回句柄
     ret_handle->fingerprint = *config;
     *handle = ret_handle;
@@ -191,107 +171,91 @@ esp_err_t fp_deinit(fp_handle_t handle)
     return ESP_OK;
 }
 
-//开启指纹模块
-esp_err_t fp_open(fp_handle_t handle)
+//开启关闭指纹模块
+esp_err_t fp_set_enable(fp_handle_t handle, bool enable)
 {
     if (!handle) {
+         ESP_LOGW(TAG, "fp arg fail\n");
         return ESP_ERR_INVALID_ARG;
     }
     esp_err_t ret;
-    //发送开启数据包{0xFD 0xE1 0x00 0x01 0xDF}
-    ret = fp_send_packet(handle, 0xE1, 0x00, 0x01);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    //接收返回数据包
     uint8_t data;
-    ret = fp_receive_packet(handle, &data);
-    if (ret != ESP_OK) {
-        return ret;
+    //判断是发送开启还是关闭
+    if (enable) {
+        //开启指令
+        ret = fp_send_packet(handle, 0xE1, 0x00, 0x01);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "fp send fail\n");
+            return ret;
+        }
+        ret = fp_receive_packet(handle, &data);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "fp receive fail\n");
+            return ret;
+        }
+        ESP_LOGI(TAG, "fp receive packet success ");
+        //判断成功或者失败 0xe1 -> 成功     0xb0 -> 无效指令
+        if (data == 0xE1) {
+            return ESP_OK;
+        }
+    } else {
+        //发送关闭数据包{0xFD 0xE1 0x00 0x00 0xDF}
+        ret = fp_send_packet(handle, 0xE1, 0x00, 0x00);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        //接收返回数据包
+        ret = fp_receive_packet(handle, &data);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        //判断成功或者失败 0xe1 -> 成功     0xb0 -> 无效指令
+        if (data == 0xE1) {
+            return ESP_OK;
+        }
     }
-    //判断成功或者失败 0xe1 -> 成功     0xb0 -> 无效指令
-    if (data == 0xE1) {
-        return ESP_OK;
-    }
-    //设置失败
     return ESP_FAIL;
 }
 
-//关闭指纹模块
-esp_err_t fp_shut(fp_handle_t handle)
+//开启关闭指纹灯光
+esp_err_t fp_set_light_enable(fp_handle_t handle, bool enable)
 {
     if (!handle) {
         return ESP_ERR_INVALID_ARG;
     }
     esp_err_t ret;
-    //发送关闭数据包{0xFD 0xE1 0x00 0x00 0xDF}
-    ret = fp_send_packet(handle, 0xE1, 0x00, 0x00);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    //接收返回数据包
     uint8_t data;
-    ret = fp_receive_packet(handle, &data);
-    if (ret != ESP_OK) {
-        return ret;
+    if (enable) {
+        //发送开启灯光数据包{0xFD 0xE1 0x00 0x03 0xDF}
+        ret = fp_send_packet(handle, 0xE1, 0x00, 0x03);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        //接收返回数据包
+        ret = fp_receive_packet(handle, &data);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        //判断成功或者失败 0xe1 -> 成功     0xb0 -> 无效指令
+        if (data == 0xE1) {
+            return ESP_OK;
+        }
+    } else {
+        //发送关闭灯光数据包{0xFD 0xE1 0x00 0x02 0xDF}
+        ret = fp_send_packet(handle, 0xE1, 0x00, 0x02);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        //接收返回数据包
+        ret = fp_receive_packet(handle, &data);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        //判断成功或者失败 0xe1 -> 成功     0xb0 -> 无效指令
+        if (data == 0xE1) {
+            return ESP_OK;
+        }
     }
-    //判断成功或者失败 0xe1 -> 成功     0xb0 -> 无效指令
-    if (data == 0xE1) {
-        return ESP_OK;
-    }
-    //设置失败
-    return ESP_FAIL;
-}
-
-//开启指纹灯光
-esp_err_t fp_open_light(fp_handle_t handle)
-{
-    if (!handle) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    esp_err_t ret;
-    //发送开启灯光数据包{0xFD 0xE1 0x00 0x03 0xDF}
-    ret = fp_send_packet(handle, 0xE1, 0x00, 0x03);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    //接收返回数据包
-    uint8_t data;
-    ret = fp_receive_packet(handle, &data);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    //判断成功或者失败 0xe1 -> 成功     0xb0 -> 无效指令
-    if (data == 0xE1) {
-        return ESP_OK;
-    }
-    //设置失败
-    return ESP_FAIL;
-}
-
-//关闭指纹灯光
-esp_err_t fp_close_light(fp_handle_t handle)
-{
-    if (!handle) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    esp_err_t ret;
-    //发送关闭灯光数据包{0xFD 0xE1 0x00 0x02 0xDF}
-    ret = fp_send_packet(handle, 0xE1, 0x00, 0x02);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    //接收返回数据包
-    uint8_t data;
-    ret = fp_receive_packet(handle, &data);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    //判断成功或者失败 0xe1 -> 成功     0xb0 -> 无效指令
-    if (data == 0xE1) {
-        return ESP_OK;
-    }
-    //设置失败
     return ESP_FAIL;
 }
 
@@ -306,28 +270,28 @@ esp_err_t fp_set_baud_rate(fp_handle_t handle, fp_baud_rate_t baud_rate)
     switch (baud_rate) {
         case BAUD_TATE_LOW_SPEED:
             //{0xFD 0xF1 0x00 0x01 0xDF}   4800
-            ret = fp_send_packet(handle, 0xE1, 0x00, 0x01);
+            ret = fp_send_packet(handle, 0xF1, 0x00, 0x01);
             if (ret != ESP_OK) {
                 return ret;
             }
             break;
         case BAUD_TATE_MEDIUM_SPEED:
             //{0xFD 0xF1 0x00 0x02 0xDF}   9600
-            ret = fp_send_packet(handle, 0xE1, 0x00, 0x02);
+            ret = fp_send_packet(handle, 0xF1, 0x00, 0x02);
             if (ret != ESP_OK) {
                 return ret;
             }
             break;
         case BAUD_TATE_HIGH_SPEED:
             //{0xFD 0xF1 0x00 0x03 0xDF}   57600
-            ret = fp_send_packet(handle, 0xE1, 0x00, 0x03);
+            ret = fp_send_packet(handle, 0xF1, 0x00, 0x03);
             if (ret != ESP_OK) {
                 return ret;
             }
             break;
         case BAUD_TATE_SUPER_SPEED:
             //{0xFD 0xF1 0x00 0x04 0xDF}   115200
-            ret = fp_send_packet(handle, 0xE1, 0x00, 0x04);
+            ret = fp_send_packet(handle, 0xF1, 0x00, 0x04);
             if (ret != ESP_OK) {
                 return ret;
             }
@@ -446,7 +410,7 @@ esp_err_t fp_enroll(fp_handle_t handle, uint8_t fp_id)
     if (ret != ESP_OK) {
         return ret;
     }
-    if (fp_id == id) {
+    if (id) {
         return ESP_FAIL;
     }
     ret = fp_send_packet(handle, 0xA1, 0x00, fp_id);

@@ -22,7 +22,7 @@ typedef enum {
     BAUD_TATE_MEDIUM_SPEED  = 9600,
     BAUD_TATE_HIGH_SPEED    = 57600,
     BAUD_TATE_SUPER_SPEED   = 115200,
-}fp_baud_rate_t;
+} fp_baud_rate_t;
 
 //工作模式定义
 typedef enum {
@@ -34,7 +34,7 @@ typedef enum {
     THIRTY_JOG_MODE                 = 0x06, //三十秒点动模式
     SIXTY_JOG_MODE                  = 0x07, //六十秒点动模式
     ONE_HANDRED_AND_TWENTY_MODE     = 0x08, //一百二十秒点动模式
-}fp_mode_t;
+} fp_mode_t;
 
 
 //指纹模块配置
@@ -42,13 +42,14 @@ typedef struct fp_config_t {
     uart_port_t uart_port;              //串口端口号
     gpio_num_t uart_rxd;                //串口rx（接收）
     gpio_num_t uart_txd;                //串口tx（发送）
-    fp_baud_rate_t baud_rate;  //串口波特率与模块波特率
-    fp_mode_t fp_mode;         //指纹模块工作模式
+    gpio_num_t fp_vt;                   //指纹模块有指纹时输出高电平，无指纹时输出低电平
+    fp_baud_rate_t baud_rate;           //串口波特率与模块波特率
+    fp_mode_t fp_mode;                  //指纹模块工作模式
     uint16_t rx_buffer_size;            //串口接收缓冲区大小
     uint16_t tx_buffer_size;            //串口发送缓冲区大小
     uint8_t dev_addr;                   //指纹模块地址
     void *user_data;                    //用户私有数据
-}fp_config_t;
+} fp_config_t;
 
 
 
@@ -58,17 +59,11 @@ esp_err_t fp_init(const fp_config_t *config, fp_handle_t *handle);
 //指纹模块反初始化
 esp_err_t fp_deinit(fp_handle_t handle);
 
-//开启指纹模块
-esp_err_t fp_open(fp_handle_t handle);
+//开启关闭指纹模块
+esp_err_t fp_set_enable(fp_handle_t handle, bool enable);
 
-//关闭指纹模块
-esp_err_t fp_shut(fp_handle_t handle);
-
-//开启指纹灯光
-esp_err_t fp_open_light(fp_handle_t handle);
-
-//关闭指纹灯光
-esp_err_t fp_close_light(fp_handle_t handle);
+//开启关闭指纹灯光
+esp_err_t fp_set_light_enable(fp_handle_t handle, bool enable);
 
 //设置波特率
 esp_err_t fp_set_baud_rate(fp_handle_t handle, fp_baud_rate_t baud_rate);
