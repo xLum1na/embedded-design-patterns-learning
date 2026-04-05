@@ -22,35 +22,34 @@ typedef struct event_bus_t {
 }event_bus_t;
 
 //事件优先级映射表
-static const sys_event_prio_t s_event_prio_map[EVT_MAX] = {
+static const event_prio_t s_event_prio_map[EVT_MAX] = {
     //最高优先级，处理系统事件
     [EVT_SYS_LOW_BATTERY]   = EVT_PRIO_CRITICAL,
     [EVT_SYS_LOW_ALARM]     = EVT_PRIO_CRITICAL,
-    //高优先级
-    [EVT_FINGER_SUCCESS]    = EVT_PRIO_HIGH,
-    [EVT_FACE_SUCCESS]      = EVT_PRIO_HIGH,
-    [EVT_PWD_ENTER_SUCCESS] = EVT_PRIO_HIGH,
-    [EVT_MOTOR_OPEN]        = EVT_PRIO_HIGH,
-    [EVT_MOTOR_LOCK]        = EVT_PRIO_HIGH,
-    //正常优先级
-    [EVT_FINGER_TOUCH]      = EVT_PRIO_NORMAL,
-    [EVT_FACE_DETECT]       = EVT_PRIO_NORMAL,
-    [EVT_PWD_KEY_PRESSED]   = EVT_PRIO_NORMAL,
-    [EVT_UI_SHOW_NORMAL]    = EVT_PRIO_NORMAL,
-    [EVT_PWD_CMD_ENROLL]    = EVT_PRIO_NORMAL,
-    [EVT_FACE_CMD_ENROLL]   = EVT_PRIO_NORMAL,
-    [EVT_FINGER_CMD_ENROLL] = EVT_PRIO_NORMAL,
-    [EVT_FINGER_FAIL]       = EVT_PRIO_NORMAL,
-    [EVT_FACE_FAIL]         = EVT_PRIO_NORMAL,
-    [EVT_PWD_ENTER_FAIL]    = EVT_PRIO_NORMAL,
-    //低优先级
-    [EVT_UI_SHOW_HOME]      = EVT_PRIO_LOW,
+    // //高优先级
+    // [EVT_FINGER_SUCCESS]    = EVT_PRIO_HIGH,
+    // [EVT_FACE_SUCCESS]      = EVT_PRIO_HIGH,
+    // [EVT_PWD_ENTER_SUCCESS] = EVT_PRIO_HIGH,
+    // [EVT_MOTOR_OPEN]        = EVT_PRIO_HIGH,
+    // [EVT_MOTOR_LOCK]        = EVT_PRIO_HIGH,
+    // //正常优先级
+    // [EVT_FINGER_TOUCH]      = EVT_PRIO_NORMAL,
+    // [EVT_FACE_DETECT]       = EVT_PRIO_NORMAL,
+    // [EVT_PWD_TOUCH]         = EVT_PRIO_NORMAL,
+    // [EVT_PWD_CMD_ENROLL]    = EVT_PRIO_NORMAL,
+    // [EVT_FACE_CMD_ENROLL]   = EVT_PRIO_NORMAL,
+    // [EVT_FINGER_CMD_ENROLL] = EVT_PRIO_NORMAL,
+    // [EVT_FINGER_FAIL]       = EVT_PRIO_NORMAL,
+    // [EVT_FACE_FAIL]         = EVT_PRIO_NORMAL,
+    // [EVT_PWD_ENTER_FAIL]    = EVT_PRIO_NORMAL,
+    // //低优先级
+    // [EVT_UI_SHOW_HOME]      = EVT_PRIO_LOW,
     
 };
 
 // ------------------- 辅助函数 -------------------
 
-static inline void fill_event(sys_event_t* ev, sys_event_type_t type, const void* data, size_t len) {
+static inline void fill_event(event_t* ev, event_type_t type, const void* data, size_t len) {
     ev->type = type;
     ev->prio = s_event_prio_map[type]; // 默认优先级，publish 时可覆盖
     ev->timestamp_ms = esp_timer_get_time() / 1000;
@@ -64,9 +63,9 @@ static inline void fill_event(sys_event_t* ev, sys_event_type_t type, const void
 
 // ------------------- 公共 API 实现 -------------------
 
-sys_event_bus_handle_t event_bus_create(void)
+event_bus_handle_t event_bus_create(void)
 {
-    sys_event_bus_handle_t bus = heap_caps_calloc(1, sizeof(event_bus_t), MALLOC_CAP_INTERNAL);
+    event_bus_handle_t bus = heap_caps_calloc(1, sizeof(event_bus_t), MALLOC_CAP_INTERNAL);
     if (!bus) {
         ESP_LOGE("event_bus", "Failed to alloc bus");
         return NULL;
@@ -74,7 +73,7 @@ sys_event_bus_handle_t event_bus_create(void)
  
     //创建4个优先级队列
     for (int i = 0; i < 4; i++) {
-        bus->queues[i] = xQueueCreate(QUEUE_SIZE_PER_PRIO, sizeof(sys_event_t));
+        bus->queues[i] = xQueueCreate(QUEUE_SIZE_PER_PRIO, sizeof(event_t));
         if (!bus->queues[i]) {
             ESP_LOGE("event_bus", "Failed to create queue %d", i);
             event_bus_delete(bus);
@@ -100,13 +99,13 @@ void event_bus_delete(event_bus_t* bus_handle) {
     free(bus_handle);
 }
 
-bool event_bus_publish(sys_event_bus_handle_t bus_handle, sys_event_type_t type, const void *data, size_t len)
+bool event_bus_publish(event_bus_handle_t bus_handle, event_type_t type, const void *data, size_t len)
 {
     if (!bus_handle || type >= EVT_MAX || len > SYS_EVENT_PAYLOAD_MAX) {
         return false;
     }
     //填充发布事件
-    sys_event_t ev;
+    event_t ev;
     fill_event(&ev, type, data, len);
 
     // 发布到对应优先级队列
@@ -117,7 +116,7 @@ bool event_bus_publish(sys_event_bus_handle_t bus_handle, sys_event_type_t type,
     return (ret == pdTRUE);
 }
 
-void event_bus_subscribe(sys_event_bus_handle_t bus_handle, sys_event_type_t type, event_handler_t handler, void *ctx)
+void event_bus_subscribe(event_bus_handle_t bus_handle, event_type_t type, event_handler_t handler, void *ctx)
 {
     if (!bus_handle || !handler || type >= EVT_MAX) return;
 
@@ -141,13 +140,13 @@ void event_bus_subscribe(sys_event_bus_handle_t bus_handle, sys_event_type_t typ
     }
 }
 
-void event_bus_process(sys_event_bus_handle_t bus_handle)
+void event_bus_process(event_bus_handle_t bus_handle)
 {
     if (!bus_handle) return;
 
     // 从高优先级到低优先级处理
     for (int prio = 0; prio < 4; prio++) {
-        sys_event_t ev;
+        event_t ev;
         while (xQueueReceive(bus_handle->queues[prio], &ev, 0) == pdTRUE) {
             // 分发给所有订阅者
             for (int i = 0; i < bus_handle->sub_count[ev.type]; i++) {
