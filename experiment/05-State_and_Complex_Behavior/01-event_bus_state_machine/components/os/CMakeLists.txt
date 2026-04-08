@@ -1,2 +1,2 @@
-idf_component_register(SRCS "serive.c"
+idf_component_register(SRCS "os.c"
                     INCLUDE_DIRS "include")
