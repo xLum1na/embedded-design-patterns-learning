@@ -26,8 +26,8 @@ extern "C" {
 
 
 /*************** #define ***************/
-#define BSP_ILI9488_RESET_PIN           7   /* ILI9488 复位引脚 */
-#define BSP_ILI9488_DC_PIN              6   /* ILI9488 数据命令传输选择线 */
+#define BSP_ILI9488_RESET_PIN           18   /* ILI9488 复位引脚 */
+#define BSP_ILI9488_DC_PIN              40   /* ILI9488 数据命令传输选择线 */
 
 
  /**

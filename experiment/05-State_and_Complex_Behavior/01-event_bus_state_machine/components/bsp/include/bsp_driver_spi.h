@@ -30,13 +30,13 @@ extern "C" {
 
 /*************** #define ***************/
 #define USE_SPI                 1               /* 使用spi */
-#define USE_DMA                 1               /* 不使用dma */
-#define BSP_SPI_HOST            SPI1_HOST       /* 使用SPI1 */
-#define BSP_MOSI_PIN            10              /* 主机输出从机输入引脚，ili9488与xpt2046共用 */
-#define BSP_MISO_PIN            11              /* 主机输入从机输出引脚，ili9488不使用，xpt2046使用 */
-#define BSP_SCLK_PIN            12              /* 时钟引脚，ili9488与xpt2046共用 */
-#define BSP_ILI9488_CS_PIN      13              /* ili9488片选 */
-#define BSP_xpt2046_CS_PIN      14              /* xpt2046设备片选 */
+#define USE_DMA                 0               /* 不使用dma */
+#define BSP_SPI_HOST            SPI2_HOST       /* 使用SPI2 */
+#define BSP_MOSI_PIN            12              /* 主机输出从机输入引脚，ili9488与xpt2046共用 */
+#define BSP_MISO_PIN            13              /* 主机输入从机输出引脚，ili9488不使用，xpt2046使用 */
+#define BSP_SCLK_PIN            14             /* 时钟引脚，ili9488与xpt2046共用 */
+#define BSP_ILI9488_CS_PIN      15              /* ili9488片选 */
+#define BSP_xpt2046_CS_PIN      16              /* xpt2046设备片选 */
 #define BSP_QUADWP_PIN          -1              /* 不需要写保护功能 */
 #define BSP_QUADHD_PIN          -1              /* 不需要保存功能 */
 #define BSP_MAX_TRAN_SIZE       4096            /* spi最传输尺寸 */  

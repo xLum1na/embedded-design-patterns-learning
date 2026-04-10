@@ -7,6 +7,13 @@
 #include "sensor_serive.h"
 #include "common_defs.h"
 
+#include <esp_lcd_panel_interface.h>
+#include <esp_lcd_panel_io.h>
+#include <esp_lcd_touch.h>
+#include <esp_lcd_panel_vendor.h>
+#include <esp_lcd_panel_ops.h>
+#include <esp_lcd_panel_commands.h>
+
 //任务句柄
 TaskHandle_t display_handle = NULL;
 TaskHandle_t sensor_handle = NULL;

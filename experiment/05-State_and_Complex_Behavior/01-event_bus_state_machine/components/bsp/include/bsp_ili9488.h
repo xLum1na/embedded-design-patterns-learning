@@ -24,6 +24,11 @@ extern "C" {
 #endif
 
 
+/*************** #define ***************/
+#define ILI9488MAXDELAY     0xffffffffUL    /* 延时 */
+#define ILI9488_WIDTH       320             /* 屏幕宽度 */
+#define ILI9488_HEIGHT      480             /* 屏幕长度 */
+
 /*************** declaration ***************/
 typedef struct bsp_ili9488_s *bsp_ili9488_handle_t;
 
@@ -54,6 +59,14 @@ typedef struct gpio_driver_t {
 }gpio_driver_t;
 
 /**
+ * @brief   timer驱动接口
+ * @details 由上层注入gpio依赖，用于内部延时
+ */
+typedef struct sys_time_t {
+    void (*sys_set_delay_func)(uint32_t xTicksToDelay);
+}sys_time_t;
+
+/**
  * @brief   ILI9488 驱动错误码定义
  */
 typedef enum ili9488_err_t {
@@ -75,8 +88,9 @@ typedef enum ili9488_err_t {
  * @details 用于设置屏幕显示颜色深度
  */
 typedef enum ili9488_color_style_t {
-    ILI9488_COLOR_RGB565 = 0,   /* 16位色，R:5 G:6 B:5 */
-    ILI9488_COLOR_RGB888 = 1,   /* 24位色，R:8 G:8 B:8 */
+    ILI9488_COLOR_RGB565 = 0x55,    /* 16位色，R:5 G:6 B:5 */
+    ILI9488_COLOR_RGB666 = 0x66,    /* 18位色，R:6 G:6 B:6 */
+    ILI9488_COLOR_RGB888 = 0x77     /* 24位色，R:8 G:8 B:8 */
 } ili9488_color_style_t;
 
 /**
@@ -113,23 +127,19 @@ typedef enum ili9488_fps_t {
 /**
  * @brief   ILI9488 像素格式接口
  */
-typedef enum ili9488_interface_t {
-    ILI9488_IF_8BIT     = 8,        /* 8位并口 */
-    ILI9488_IF_16BIT    = 16,      /* 16位并口 */
-    ILI9488_IF_SPI      = 0,         /* SPI接口 */
-} ili9488_interface_t;
+typedef enum ili9488_pixel_t {
+    ILI9488_16BIT     = 0x55,      /* 8位 */
+    ILI9488_18BIT     = 0x66,      /* 16位 */
+} ili9488_pixel_t;
 
 /**
  * @brief   ILI9488 屏幕数据结构
  */
 typedef struct bsp_ili9488_config_t {
-    uint16_t                    width;      /* 屏幕宽度 */
-    uint16_t                    height;     /* 屏幕高度 */
     ili9488_color_style_t       color;      /* 色彩格式 */
     ili9488_direction_t         dir;        /* 显示方向 */
     ili9488_scan_direction_t    scan_dir;   /* 扫描方向 */
     ili9488_fps_t               fps;        /* 刷新率 */
-    ili9488_interface_t         interface;  /* 接口类型 */
     void                        *user_data; /* 用户私有数据 */
 } bsp_ili9488_config_t;
 
@@ -151,9 +161,10 @@ typedef struct bsp_ili9488_config_t {
  * @note 由上层调用创建设备实例
  */
 ili9488_err_t ili9488_create(const bsp_ili9488_config_t *ili9488_cfg,
-                                const spi_driver_t *spi_driver_if,
-                                const ledc_driver_t *ledc_driver_if,
-                                const gpio_driver_t *gpio_driver_if,
+                                spi_driver_t *spi_driver_if,
+                                ledc_driver_t *ledc_driver_if,
+                                gpio_driver_t *gpio_driver_if,
+                                sys_time_t *time_drivr_if,
                                 bsp_ili9488_handle_t *ili9488_handle);
 
 /**
@@ -177,6 +188,9 @@ ili9488_err_t ili9488_delete(bsp_ili9488_handle_t *ili9488_handle);
  *
  * @return 
  *      - ILI9488_OK
+ *      - ILI9488_ERR_NOT_INIT
+ *      - ILI9488_ERR_GPIO_FAIL
+ *      - ILI9488_ERR_SPI_FAIL
  *      - ILI9488_ERR_INVALID_ARG
  *
  * @note 由上层调用，初始化实例
@@ -190,6 +204,9 @@ ili9488_err_t bsp_ili9488_init(bsp_ili9488_handle_t handle);
  *
  * @return 
  *      - ILI9488_OK
+ *      - ILI9488_ERR_NOT_INIT
+ *      - ILI9488_ERR_GPIO_FAIL
+ *      - ILI9488_ERR_SPI_FAIL
  *      - ILI9488_ERR_INVALID_ARG
  *
  * @note 由上层调用，反初始化实例
@@ -197,11 +214,16 @@ ili9488_err_t bsp_ili9488_init(bsp_ili9488_handle_t handle);
 ili9488_err_t bsp_ili9488_deinit(bsp_ili9488_handle_t handle);
 
 /**
- * @brief   ILI9488 软件复位函数
+ * @brief   ILI9488 硬件复位函数
  *
  * @param[in] ili9488_intance ILI9488 实例句柄
  *
  * @return 
+ *      - ILI9488_OK
+ *      - ILI9488_ERR_NOT_INIT
+ *      - ILI9488_ERR_GPIO_FAIL
+ *      - ILI9488_ERR_SPI_FAIL
+ *      - ILI9488_ERR_INVALID_ARG
  *
  * @note 由上层调用
  */
@@ -217,6 +239,11 @@ ili9488_err_t bsp_ili9488_reset(bsp_ili9488_handle_t handle);
  * @param[in] y2 结束列
  *
  * @return 
+ *      - ILI9488_OK
+ *      - ILI9488_ERR_NOT_INIT
+ *      - ILI9488_ERR_GPIO_FAIL
+ *      - ILI9488_ERR_SPI_FAIL
+ *      - ILI9488_ERR_INVALID_ARG
  *
  * @note 由上层调用
  */
@@ -232,6 +259,11 @@ ili9488_err_t bsp_ili9488_setaddrwindow(bsp_ili9488_handle_t handle, uint16_t x1
  * @param[in] color 像素颜色值
  * 
  * @return 
+ *      - ILI9488_OK
+ *      - ILI9488_ERR_NOT_INIT
+ *      - ILI9488_ERR_GPIO_FAIL
+ *      - ILI9488_ERR_SPI_FAIL
+ *      - ILI9488_ERR_INVALID_ARG
  *
  * @note 由上层调用
  */
@@ -245,6 +277,11 @@ ili9488_err_t bsp_ili9488_drawpixel(bsp_ili9488_handle_t handle, uint16_t x,
  * @param[in] color 填充颜色值
  * 
  * @return 
+ *      - ILI9488_OK
+ *      - ILI9488_ERR_NOT_INIT
+ *      - ILI9488_ERR_GPIO_FAIL
+ *      - ILI9488_ERR_SPI_FAIL
+ *      - ILI9488_ERR_INVALID_ARG
  *
  * @note 由上层调用
  */
@@ -261,6 +298,11 @@ ili9488_err_t bsp_ili9488_fillscreen(bsp_ili9488_handle_t handle, uint16_t color
  * @param[in] color 填充颜色值
  * 
  * @return 
+ *      - ILI9488_OK
+ *      - ILI9488_ERR_NOT_INIT
+ *      - ILI9488_ERR_GPIO_FAIL
+ *      - ILI9488_ERR_SPI_FAIL
+ *      - ILI9488_ERR_INVALID_ARG
  *
  * @note 由上层调用
  */
@@ -274,10 +316,15 @@ ili9488_err_t bsp_ili9488_fillrect(bsp_ili9488_handle_t handle, uint16_t x,
  * @param[in] direction 显示方向
  * 
  * @return 
+ *      - ILI9488_OK
+ *      - ILI9488_ERR_NOT_INIT
+ *      - ILI9488_ERR_GPIO_FAIL
+ *      - ILI9488_ERR_SPI_FAIL
+ *      - ILI9488_ERR_INVALID_ARG
  *
  * @note 由上层调用
  */
-ili9488_err_t bsp_ili9488_setdirection(bsp_ili9488_handle_t handle, uint8_t rotation);
+ili9488_err_t bsp_ili9488_setdirection(bsp_ili9488_handle_t handle, ili9488_direction_t diretion);
 
 /**
  * @brief   ILI9488 开启显示
@@ -285,6 +332,11 @@ ili9488_err_t bsp_ili9488_setdirection(bsp_ili9488_handle_t handle, uint8_t rota
  * @param[in] ili9488_intance ILI9488 实例句柄
  * 
  * @return 
+ *      - ILI9488_OK
+ *      - ILI9488_ERR_NOT_INIT
+ *      - ILI9488_ERR_GPIO_FAIL
+ *      - ILI9488_ERR_SPI_FAIL
+ *      - ILI9488_ERR_INVALID_ARG
  *
  * @note 由上层调用
  */
@@ -296,6 +348,11 @@ ili9488_err_t bsp_ili9488_displayon(bsp_ili9488_handle_t handle);
  * @param[in] ili9488_intance ILI9488 实例句柄
  * 
  * @return 
+ *      - ILI9488_OK
+ *      - ILI9488_ERR_NOT_INIT
+ *      - ILI9488_ERR_GPIO_FAIL
+ *      - ILI9488_ERR_SPI_FAIL
+ *      - ILI9488_ERR_INVALID_ARG
  *
  * @note 由上层调用
  */
@@ -307,6 +364,11 @@ ili9488_err_t bsp_ili9488_displayoff(bsp_ili9488_handle_t handle);
  * @param[in] ili9488_intance ILI9488 实例句柄
  * 
  * @return 
+ *      - ILI9488_OK
+ *      - ILI9488_ERR_NOT_INIT
+ *      - ILI9488_ERR_GPIO_FAIL
+ *      - ILI9488_ERR_SPI_FAIL
+ *      - ILI9488_ERR_INVALID_ARG
  *
  * @note 由上层调用
  */
@@ -318,6 +380,11 @@ ili9488_err_t bsp_ili9488_sleepin(bsp_ili9488_handle_t handle);
  * @param[in] ili9488_intance ILI9488 实例句柄
  * 
  * @return 
+ *      - ILI9488_OK
+ *      - ILI9488_ERR_NOT_INIT
+ *      - ILI9488_ERR_GPIO_FAIL
+ *      - ILI9488_ERR_SPI_FAIL
+ *      - ILI9488_ERR_INVALID_ARG
  *
  * @note 由上层调用
  */

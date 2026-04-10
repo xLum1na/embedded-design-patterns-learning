@@ -26,7 +26,7 @@ extern "C" {
 
 
 /*************** #define ***************/
-#define BSP_LEDC_PIN            5                       /* ledc 硬件引脚 */ 
+#define BSP_LEDC_PIN            17                       /* ledc 硬件引脚 */ 
 #define BSP_LEDC_TIMER          LEDC_TIMER_0            /* ledc 定时器 */
 #define BSP_LEDC_SPEED_MODE     LEDC_LOW_SPEED_MODE     /* ledc 速度模式 */
 #define BSP_LEDC_FREQ_HZ        4000                    /* ledc 频率 */

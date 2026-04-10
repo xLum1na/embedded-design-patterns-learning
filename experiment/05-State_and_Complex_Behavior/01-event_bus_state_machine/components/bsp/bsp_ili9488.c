@@ -26,6 +26,7 @@ typedef struct bsp_ili9488_s {
     spi_driver_t            *spi_if;            /* spi 驱动接口 */
     ledc_driver_t           *ledc_if;           /* ledc 驱动接口 */
     gpio_driver_t           *gpio_if;           /* gpio 驱动接口 */
+    sys_time_t              *time_if;           /* os 延时驱动接口 */
     /* 运行时状态层 (Runtime State) */
     bool                    is_sleeping;        /* 休眠 */
     /* 资源管理层 (Resources) */
@@ -221,7 +222,7 @@ static ili9488_err_t bsp_ili9488_writedata16(bsp_ili9488_handle_t handle, uint16
         return ILI9488_ERR_GPIO_FAIL;
     }
     /* 数据缓冲区 */
-    uint8_t buffer[2];
+    uint8_t buffer[4];
     buffer[0] = (data >> 8) & 0xFF;   /* 高8位 */
     buffer[1] = data & 0xFF;          /* 低8位 */
     /* 发送数据 */
@@ -266,9 +267,10 @@ static ili9488_err_t bsp_ili9488_writedata16_bulk(bsp_ili9488_handle_t handle,
 //                  外部函数                    //
 //=============================================//
 ili9488_err_t ili9488_create(const bsp_ili9488_config_t *ili9488_cfg,
-                                const spi_driver_t *spi_driver_if,
-                                const ledc_driver_t *ledc_driver_if,
-                                const gpio_driver_t *gpio_driver_if,
+                                spi_driver_t *spi_driver_if,
+                                ledc_driver_t *ledc_driver_if,
+                                gpio_driver_t *gpio_driver_if,
+                                sys_time_t *time_drivr_if,
                                 bsp_ili9488_handle_t *ili9488_handle)
 {
     /* 参数检查 */
@@ -292,6 +294,10 @@ ili9488_err_t ili9488_create(const bsp_ili9488_config_t *ili9488_cfg,
         gpio_driver_if->gpio_set_reset_func == NULL) {
         return ILI9488_ERR_INVALID_ARG;
     }
+    if (time_drivr_if == NULL || 
+        time_drivr_if->sys_set_delay_func == NULL) {
+        return ILI9488_ERR_INVALID_ARG;
+    }
     bsp_ili9488_handle_t ret_handle = calloc(1, sizeof(bsp_ili9488_s));
     if (ret_handle == NULL) {
         return ILI9488_ERR_NO_MEM;
@@ -300,6 +306,7 @@ ili9488_err_t ili9488_create(const bsp_ili9488_config_t *ili9488_cfg,
     ret_handle->spi_if = spi_driver_if;
     ret_handle->ledc_if = ledc_driver_if;
     ret_handle->gpio_if = gpio_driver_if;
+    ret_handle->time_if = time_drivr_if;
     /* 保存 ILI9488 配置*/
     ret_handle->dev_cfg = *ili9488_cfg;
     /* 运行时状态初始化*/
@@ -327,18 +334,270 @@ ili9488_err_t ili9488_delete(bsp_ili9488_handle_t *ili9488_handle)
 
 ili9488_err_t bsp_ili9488_init(bsp_ili9488_handle_t handle)
 {
+    if (handle == NULL) {
+        return ILI9488_ERR_INVALID_ARG;
+    }
+    /* 硬件复位 */
+    bsp_ili9488_reset(handle);
+    /* 软件复位 */
+    bsp_ili9488_writecommand(handle, 0x01, ILI9488MAXDELAY);
+    if (handle->time_if && handle->time_if->sys_set_delay_func) {
+            handle->time_if->sys_set_delay_func(5);
+    } else {
+        return ILI9488_ERR_NOT_INIT;
+    }
 
+    /* 退出睡眠模式*/
+    bsp_ili9488_sleepout(handle);
+    handle->time_if->sys_set_delay_func(120);
+    /* 设置像素格式 */
+    bsp_ili9488_writecommand(handle, 0x3A, ILI9488MAXDELAY); 
+    bsp_ili9488_writedata8(handle, handle->dev_cfg.color, ILI9488MAXDELAY);
+    handle->time_if->sys_set_delay_func(10);
+    /* 设置显示方向 */
+    bsp_ili9488_setdirection(handle, handle->dev_cfg.dir);
+    /* 电源控制 */
+    bsp_ili9488_writecommand(handle, 0xC0, ILI9488MAXDELAY); 
+    bsp_ili9488_writedata8(handle, 0x11, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x09, ILI9488MAXDELAY);
+
+    bsp_ili9488_writecommand(handle, 0xC1, ILI9488MAXDELAY); 
+    bsp_ili9488_writedata8(handle, 0x41, ILI9488MAXDELAY);
+    /* VCOM控制 */
+    bsp_ili9488_writecommand(handle, 0xC5, ILI9488MAXDELAY); 
+    bsp_ili9488_writedata8(handle, 0x00, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x12, ILI9488MAXDELAY);
+    /* VDVI控制 */
+    bsp_ili9488_writecommand(handle, 0xC6, ILI9488MAXDELAY); 
+    bsp_ili9488_writedata8(handle, 0x33, ILI9488MAXDELAY);   
+    /* GAMMA校正 */
+    bsp_ili9488_writecommand(handle, 0xE0, ILI9488MAXDELAY); 
+    bsp_ili9488_writedata8(handle, 0x0F, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x26, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x24, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x0B, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x0E, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x08, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x54, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0xA6, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x3C, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x0A, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x11, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x08, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x0A, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x1F, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x0F, ILI9488MAXDELAY);
+
+    bsp_ili9488_writecommand(handle, 0xE1, ILI9488MAXDELAY); 
+    bsp_ili9488_writedata8(handle, 0x00, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x19, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x1B, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x04, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x01, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x07, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x2B, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x59, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x43, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x05, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x0E, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x07, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x05, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x20, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, 0x0F, ILI9488MAXDELAY);
+
+    /* 开启显示 */
+    bsp_ili9488_displayon(handle);
+    handle->time_if->sys_set_delay_func(60);
+
+    /* 清屏 */
+    bsp_ili9488_fillscreen(handle, 0x0000);
     return ILI9488_OK;
 }
 
 ili9488_err_t bsp_ili9488_deinit(bsp_ili9488_handle_t handle)
 {
+    if (handle == NULL) {
+        return ILI9488_ERR_INVALID_ARG;
+    }
+    /* 关闭背光 */
+    if (handle->ledc_if && handle->ledc_if->ledc_set_duty_func) {
+        handle->ledc_if->ledc_set_duty_func(0); 
+    } else {
+        return ILI9488_ERR_NOT_INIT;
+    }
+    /* 进入睡眠模式 */
+    bsp_ili9488_sleepin(handle);
+    /* 更新状态 */
+    handle->is_sleeping = true;
 
     return ILI9488_OK;
 }
 
 ili9488_err_t bsp_ili9488_reset(bsp_ili9488_handle_t handle)
 {
+    if (handle == NULL) {
+        return ILI9488_ERR_INVALID_ARG;
+    }
+    if (handle->gpio_if && handle->gpio_if->gpio_set_reset_func) {
+        handle->gpio_if->gpio_set_reset_func(1);
+    } else {
+        return ILI9488_ERR_NOT_INIT;
+    }
+    if (handle->time_if && handle->time_if->sys_set_delay_func) {
+        handle->time_if->sys_set_delay_func(10);
+    } else {
+        return ILI9488_ERR_NOT_INIT;
+    }
+    handle->gpio_if->gpio_set_reset_func(0);
+    handle->time_if->sys_set_delay_func(10);
+    handle->gpio_if->gpio_set_reset_func(1);
+    handle->time_if->sys_set_delay_func(120);
+    return ILI9488_OK;
+}
 
+ili9488_err_t bsp_ili9488_setaddrwindow(bsp_ili9488_handle_t handle, uint16_t x1, 
+                                        uint16_t y1, uint16_t x2, uint16_t y2)
+{
+    if (handle == NULL) {
+        return ILI9488_ERR_INVALID_ARG;
+    }
+    /* 设置列地址 */
+    bsp_ili9488_writecommand(handle, 0x2A, ILI9488MAXDELAY); 
+    bsp_ili9488_writedata16(handle, x1, ILI9488MAXDELAY);
+    bsp_ili9488_writedata16(handle, x2, ILI9488MAXDELAY);
+
+    /* 设置地址 */
+    bsp_ili9488_writecommand(handle, 0x2B, ILI9488MAXDELAY); 
+    bsp_ili9488_writedata16(handle, y1, ILI9488MAXDELAY);
+    bsp_ili9488_writedata16(handle, y2, ILI9488MAXDELAY);
+    /* 准备写入显存 */
+    bsp_ili9488_writecommand(handle, 0x2C, ILI9488MAXDELAY); 
+    return ILI9488_OK;
+}
+
+ili9488_err_t bsp_ili9488_drawpixel(bsp_ili9488_handle_t handle, uint16_t x, 
+                                    uint16_t y, uint16_t color)
+{
+    if (handle == NULL) {
+        return ILI9488_ERR_INVALID_ARG;
+    }
+    if (x >= ILI9488_WIDTH || y >= ILI9488_HEIGHT) {
+             return ILI9488_ERR_INVALID_ARG;
+    }
+
+    bsp_ili9488_setaddrwindow(handle, x, y, x, y);
+    bsp_ili9488_writedata16(handle, color, ILI9488MAXDELAY);
+
+    return ILI9488_OK;
+}
+
+ili9488_err_t bsp_ili9488_fillscreen(bsp_ili9488_handle_t handle, uint16_t color)
+{
+    if (handle == NULL) {
+        return ILI9488_ERR_INVALID_ARG;
+    }
+
+    uint16_t width = ILI9488_WIDTH;
+    uint16_t height = ILI9488_HEIGHT;
+    
+    bsp_ili9488_setaddrwindow(handle, 0, 0, width - 1, height - 1);
+
+    uint32_t pixel_count = (uint32_t)width * height;
+    static uint16_t s_fill_color; 
+    s_fill_color = color;
+    bsp_ili9488_writedata16_bulk(handle, &s_fill_color, pixel_count, ILI9488MAXDELAY);
+
+    return ILI9488_OK;
+}
+
+ili9488_err_t bsp_ili9488_fillrect(bsp_ili9488_handle_t handle, uint16_t x, 
+                                    uint16_t y, uint16_t w, uint16_t h, uint16_t color)
+{
+    if (handle == NULL) {
+        return ILI9488_ERR_INVALID_ARG;
+    }
+
+    uint16_t x1 = x;
+    uint16_t y1 = y;
+    uint16_t x2 = x + w - 1;
+    uint16_t y2 = y + h - 1;
+    uint32_t pixel_count = w * h;
+    
+    if (x1 >= ILI9488_WIDTH || y1 >= ILI9488_HEIGHT) return ILI9488_ERR_INVALID_ARG;
+    if (x2 >= ILI9488_WIDTH) x2 = ILI9488_WIDTH - 1;
+    if (y2 >= ILI9488_HEIGHT) y2 = ILI9488_HEIGHT - 1;
+    
+    bsp_ili9488_setaddrwindow(handle, x1, y1, x2, y2);
+    
+    for (uint32_t i = 0; i < pixel_count; i++) {
+        bsp_ili9488_writedata16(handle, color, ILI9488MAXDELAY);
+    }
+    return ILI9488_OK;
+}
+
+
+ili9488_err_t bsp_ili9488_setdirection(bsp_ili9488_handle_t handle, ili9488_direction_t diretion)
+{
+    if (handle == NULL) {
+        return ILI9488_ERR_INVALID_ARG;
+    }
+
+    uint8_t madctl_value;
+    
+    switch (diretion) {
+        case ILI9488_DIR_0:
+            madctl_value = 0x48;
+            break;
+        case ILI9488_DIR_90:
+            madctl_value = 0x88;
+            break;
+        case ILI9488_DIR_180:
+            madctl_value = 0xE8;
+            break;
+        case ILI9488_DIR_270:
+            madctl_value = 0x28;
+            break;
+        default:
+            madctl_value = 0x48;
+            break;
+    }
+    bsp_ili9488_writecommand(handle, 0x36, ILI9488MAXDELAY);
+    bsp_ili9488_writedata8(handle, madctl_value, ILI9488MAXDELAY);
+    return ILI9488_OK;
+}
+
+ili9488_err_t bsp_ili9488_displayon(bsp_ili9488_handle_t handle)
+{
+    if (handle == NULL) {
+        return ILI9488_ERR_INVALID_ARG;
+    }
+    return bsp_ili9488_writecommand(handle, 0x29, ILI9488MAXDELAY);
+}
+
+ili9488_err_t bsp_ili9488_displayoff(bsp_ili9488_handle_t handle)
+{
+    if (handle == NULL) {
+        return ILI9488_ERR_INVALID_ARG;
+    }
+    return bsp_ili9488_writecommand(handle, 0x28, ILI9488MAXDELAY);
+}
+
+ili9488_err_t bsp_ili9488_sleepin(bsp_ili9488_handle_t handle)
+{
+    if (handle == NULL) {
+        return ILI9488_ERR_INVALID_ARG;
+    }
+    bsp_ili9488_writecommand(handle, 0x10, ILI9488MAXDELAY);
+    handle->time_if->sys_set_delay_func(120);
+    return ILI9488_OK;
+}
+
+ili9488_err_t bsp_ili9488_sleepout(bsp_ili9488_handle_t handle)
+{
+    if (handle == NULL) {
+        return ILI9488_ERR_INVALID_ARG;
+    }
+    bsp_ili9488_writecommand(handle, 0x11, ILI9488MAXDELAY);
+    handle->time_if->sys_set_delay_func(120);
     return ILI9488_OK;
 }

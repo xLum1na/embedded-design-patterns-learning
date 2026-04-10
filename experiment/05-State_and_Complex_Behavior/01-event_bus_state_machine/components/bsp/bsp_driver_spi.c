@@ -46,8 +46,11 @@ static spi_device_handle_t g_xpt2046_spi_handle = NULL;
     static uint8_t *tx_dma_buf = NULL;
     static uint8_t *rx_dma_buf = NULL;
 /*************** 互斥锁保护DMA缓冲区 ***************/
-    static SemaphoreHandle_t g_dma_mutex = NULL;
+static SemaphoreHandle_t g_dma_mutex = NULL;
+
 #endif
+
+static bool s_spi_bus_initialized = false;
 
 /**
  * @brief   内部使用传输数据函数
@@ -62,6 +65,10 @@ static bool _do_transfer(uint8_t dev_id, uint8_t *tx_data, uint8_t *rx_data, uin
 
 void bsp_spi_init(void)
 {
+    if (s_spi_bus_initialized) {
+        ESP_LOGW(TAG, "SPI bus already initialized by this driver, skipping.");
+        return;
+    }
     esp_err_t ret;
     /* 配置spi主机 */
     spi_bus_config_t bus_cfg = {0};
@@ -77,10 +84,12 @@ void bsp_spi_init(void)
         ESP_LOGE(TAG, "SPI bus init failed: %x", ret);
         return ;
     }
+    s_spi_bus_initialized = true;
+
     /* 配置 ili9488 spi设备 */
     spi_device_interface_config_t ili9488_dev_cfg = {0};
     ili9488_dev_cfg.clock_speed_hz      =   BSP_ILI9488_FREQ_HZ;
-    ili9488_dev_cfg.mode                =   3;
+    ili9488_dev_cfg.mode                =   0;
     ili9488_dev_cfg.spics_io_num        =   BSP_ILI9488_CS_PIN;
     ili9488_dev_cfg.queue_size          =   QUEUE_SIZE;
     ili9488_dev_cfg.flags               =   0;
@@ -176,6 +185,7 @@ void bsp_spi_deinit(void)
     } else {
         ESP_LOGI(TAG, "SPI Bus freed");
     }
+    s_spi_bus_initialized = false;
 }
 
 bool bsp_spi_ili9488_write(uint8_t *data, uint8_t len, int timeout_ms)
@@ -183,6 +193,7 @@ bool bsp_spi_ili9488_write(uint8_t *data, uint8_t len, int timeout_ms)
     if (data == NULL || len == 0) {
         return false;
     }
+    ESP_LOGI(TAG, "spi send len = %d", len);
     return _do_transfer(DEV_ID_ILI9488, data, NULL, len, timeout_ms);
 }
 

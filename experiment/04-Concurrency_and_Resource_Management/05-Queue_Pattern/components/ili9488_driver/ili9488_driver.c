@@ -799,7 +799,6 @@ esp_err_t esp_lcd_new_panel_ili9488(
                               "Unsupported color mode!");
     }
 #endif
-
     ili9488->io = io;
     ili9488->reset_gpio_num = panel_dev_config->reset_gpio_num;
     ili9488->reset_level = panel_dev_config->flags.reset_active_high;

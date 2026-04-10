@@ -52,7 +52,7 @@ void bsp_gpio_init(void)
 bool bsp_set_dc_level(uint32_t level)
 {
     esp_err_t ret;
-    ESP_LOGI(TAG, "gpio dc test");
+    //ESP_LOGI(TAG, "gpio dc test");
     ret = gpio_set_level(BSP_ILI9488_DC_PIN, level);
     if (ret != ESP_OK) {
         return false;
