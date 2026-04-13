@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "os.h"
+#include "bsp_xpt2046.h"
 
 void func(void)
 {
